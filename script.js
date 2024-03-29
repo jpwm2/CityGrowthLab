@@ -1,106 +1,117 @@
-populationPerLand = 1;
+populationPerLand = 2;
+baseWage = 100
 moneyPerLand = 100000;
-reward = 100;
 width = 50;
 height = 50;
 neighborRadius = 1;
-policy = policyAdjust2;
 
 
+class Person{
+    constructor(wage, residence){
+        this.wage = wage;
+        this.residence = residence;
+        this.workFlag = false;
+    }
 
+    work(){
+        this.workFlag = true;
+    }
+
+    reset(){
+        const rate = 1.1;
+        if (this.workFlag){
+            this.wage *= rate; 
+            this.wage = Math.round(this.wage);
+            this.workFlag = false;
+        }else{
+            this.wage /= rate;
+            this.wage = Math.round(this.wage);
+        }
+    }
+}
+
+function shuffleArray(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]]; // 要素の交換
+    }
+    return arr;
+  }
+  
 
 class Land{
-    constructor(population, money, reward, policy){
-        this.population = population;
+    moneyStopper = 0.5;
+    constructor(money){
         this.money = money;
-        this.reward = reward;
-        this.policy = policy;
-        this.numTransactions = 0;
-        this.newPopulation = 0;
-        this.newMoney = 0;
+        this.newPeople = 0;
+    }
+
+    setPeople(people){
+        this.people = people;
     }
 
     setNeighbors(neighbors){
         this.neighbors = neighbors;
     }
 
-    sendPeople(){
-        let highestReward = 0;
-        let bestLands = [];
-        for (let neighbor of this.neighbors) {
-            if (neighbor.reward > highestReward) {
-                highestReward = neighbor.reward;
-                bestLands = [neighbor]; // 新しい最高報酬の土地を見つけたら、bestLands配列をリセットしてその土地だけを含める
-            } else if (neighbor.reward === highestReward) {
-                bestLands.push(neighbor); // 同じ最高報酬を提供する別の土地を見つけたら、その土地も配列に追加
-            }
-        }
-        if (bestLands.length > 0) {
-            const randomIndex = Math.floor(Math.random() * bestLands.length); // bestLands配列からランダムに選択するためのインデックス
-            const bestLand = bestLands[randomIndex];
-            bestLand.receivePeople(this.population);
-            this.newMoney += highestReward;
-        }
+    sendPerson(person, transportationExpenses){
+        this.money += person.wage * transportationExpenses;     
+        person.work();
     }
 
-    receivePeople(numPeople){
-        this.numTransactions += 1;
-        this.newPopulation += numPeople;
-        this.newMoney -= this.reward;
+    receivePeople(){
+        let workers = new Set();
+        const commuteDistance = new Map();
+        let remainingAmount = this.money;
+        while (true){
+            let lowestPerson = null;
+            let lowestWage = Number.MAX_SAFE_INTEGER;
+            for (let [distance, land] of this.neighbors.entries()){
+                land.people = shuffleArray(land.people);
+                for (const person of land.people){
+                    if (!person.workFlag && !workers.has(person) && person.wage * distance < lowestWage){
+                        lowestPerson = person;
+                        lowestWage = person.wage * distance;
+                        commuteDistance.set(lowestPerson, distance);
+                    }
+                }
+                
+            }
+            if (lowestPerson === null) break;
+
+            remainingAmount -= lowestWage;
+            if(remainingAmount - lowestWage < this.money * this.moneyStopper){
+                break;
+            }else{
+                remainingAmount -= lowestWage;
+                workers.add(lowestPerson);
+            }
+        }
+        for (const worker of workers){
+            worker.residence.sendPerson(worker,commuteDistance.get(worker));
+            this.newPeople += 1;
+        }
     }
 
     update(){
-        this.population = this.newPopulation;
-        this.newPopulation = 0;
-        this.money += this.newMoney;
-        this.reward = policy(this.reward, this.numTransactions, this.money);
-        this.numTransactions = 0;
-        this.newMoney = 0;
-    }
-
-}
-
-function policyAdjust1(reward, numTransactions){
-    let increaseRate = 1.1
-    let numOfNeighbors = 9
-    for (let i = 1 ; i <= neighborRadius; i++){
-        numOfNeighbors += 8 * i;
-    }
-    if (numTransactions > numOfNeighbors/2){
-        reward /= increaseRate;
-    }else{
-        reward *= increaseRate;
-    }
-    return reward
-}
-
-function policyAdjust2(reward, numTransactions, money){
-    let increaseRate = 1.1
-    let numOfNeighbors = 1
-    for (let i = 1 ; i <= neighborRadius; i++){
-        numOfNeighbors += 8 * i;
-    }
-
-    if (numTransactions > numOfNeighbors/2){
-        reward /= increaseRate;
-    }else{
-        reward *= increaseRate;
-    }
-    if (reward * numOfNeighbors >= money){
-        reward = money / numOfNeighbors;
-        reward = Math.floor(reward);
-    }else{
-        reward = Math.round(reward);
-    }
-    /*
-    if (reward < 0){
-        console.log('ok')
-        while (true){
-            console.log('whathappend');
+        this.people = shuffleArray(this.people);
+        if (this.newPeople > this.people.length){
+            let wageAverage = 0;
+            for (const person of this.people){
+                wageAverage += person.wage;
+                person.reset();
+            }
+            wageAverage /= this.people.length;
+            this.marketPrice = wageAverage;
+            for (let i = 0; i < this.newPeople - this.people.length; i++){
+                this.people.push(new Person(this.marketPrice, this));
+            }
+        }else{
+            this.people.length = this.newPeople;
         }
+
     }
-    */
-    return reward
+
 }
 
 function initializeGrid(width, height){
@@ -108,8 +119,13 @@ function initializeGrid(width, height){
     for (let x = 0; x < width; x++){
         let column = [];
         for (let y = 0; y < height; y++){
-            let land = new Land(populationPerLand, moneyPerLand, reward, policy)
-            column.push(land)
+            let land = new Land(moneyPerLand)
+            let people = [];
+            for (let i = 0; i < populationPerLand; i++){
+                people.push(new Person(baseWage, land));
+            }
+            land.setPeople(people);
+            column.push(land);
         }
         grid.push(column);
     }
@@ -142,7 +158,7 @@ function drawGrid(grid, ctx, maxPopulation, minPopulation, maxMoney, minMoney) {
         for (let y = 0; y < height; y++) {
             let land = grid[x][y];
             // 人口に基づいた赤色の強度を計算
-            let colorValueRed = ((land.population - minPopulation) / (maxPopulation - minPopulation)) * 255;
+            let colorValueRed = ((land.people.length - minPopulation) / (maxPopulation - minPopulation)) * 255;
             // お金に基づいた緑色の強度を計算
             let colorValueGreen = ((land.money - minMoney) / (maxMoney - minMoney)) * 255;
             ctx.fillStyle = `rgb(${Math.round(colorValueRed)}, ${Math.round(colorValueGreen)}, 0)`;
@@ -157,30 +173,42 @@ async function simulate(grid, turns) {
     for (let turn = 0; turn < turns; turn++) {
         let maxPopulation = 0, minPopulation = Number.MAX_SAFE_INTEGER;
         let maxMoney = 0, minMoney = Number.MAX_SAFE_INTEGER;
-        for (let column of grid) {
-            for (let land of column) {
-                land.sendPeople();
-                if (land.population > maxPopulation) maxPopulation = land.population;
-                if (land.population < minPopulation) minPopulation = land.population;
+        
+        // 列のインデックスをランダムに並べ替える
+        let columnsOrder = [...Array(grid.length).keys()].sort(() => Math.random() - 0.5);
+
+        for (let columnIndex of columnsOrder) {
+            let column = grid[columnIndex];
+            // 各列の土地のインデックスをランダムに並べ替える
+            let landsOrder = [...Array(column.length).keys()].sort(() => Math.random() - 0.5);
+
+            for (let landIndex of landsOrder) {
+                let land = column[landIndex];
+                land.receivePeople();
+                if (land.people.length > maxPopulation) maxPopulation = land.population;
+                if (land.people.length < minPopulation) minPopulation = land.population;
                 if (land.money > maxMoney) maxMoney = land.money;
                 if (land.money < minMoney) minMoney = land.money;
             }
         }
+
         let sum = 0;
-        for (let column of grid) {
-            for (let land of column) {
+        for (let columnIndex of columnsOrder) {
+            let column = grid[columnIndex];
+            for (let landIndex of column.map((_, i) => i)) { // この部分はランダム化の必要がありません
+                let land = column[landIndex];
                 land.update();
                 sum += land.money;
             }
         }
+
         console.log(`landmoney: ${grid[4][4].money}`);
-        //console.log(`landReward: ${grid[4][4].reward}`);
-        //console.log(`Max Population: ${maxPopulation}, Min Population: ${minPopulation}`);
-        //console.log(`Max Money: ${maxMoney}, Min Money: ${minMoney}`);
+        // 描画と遅延のロジックは変更されていません
         drawGrid(grid, ctx, maxPopulation, minPopulation, maxMoney, minMoney);
         await new Promise(resolve => setTimeout(resolve, 10)); // 100ミリ秒の遅延
     }
 }
+
 
 
 
